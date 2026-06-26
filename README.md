@@ -26,6 +26,10 @@ npm run dev
 ```bash
 # 1. Copy the entire tpm-app folder to the new machine
 #    (or clone from git if you've committed it)
+  git clone https://github.com/yair-brama/tpm-portal.git
+  cd tpm-portal
+  npm install
+  npm run dev
 
 # 2. Install Node.js 18+ on the new machine
 #    https://nodejs.org/
