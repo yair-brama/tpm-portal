@@ -83,7 +83,7 @@ export async function writeData(data) {
   try {
     const fileHandle = await directoryHandle.getFileHandle(DATA_FILE_NAME, { create: true });
     const writable = await fileHandle.createWritable();
-    const json = JSON.stringify(data, null, 2);
+    const json = JSON.stringify(data);
     await writable.write(json);
     await writable.close();
   } catch (e) {

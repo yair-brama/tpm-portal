@@ -827,6 +827,9 @@ function _autosave(get) {
   debouncedSave(() => get().saveData());
 }
 
+const MAX_KPI_HISTORY = 104;
+const MAX_DATA_IMPORTS = 50;
+
 function _extractData(state) {
   return {
     projects: state.projects,
@@ -836,8 +839,12 @@ function _extractData(state) {
     statusReports: state.statusReports,
     discoveryState: state.discoveryState,
     raciData: state.raciData,
-    kpis: state.kpis,
-    dataImports: state.dataImports,
+    kpis: state.kpis.map(k =>
+      k.history && k.history.length > MAX_KPI_HISTORY
+        ? { ...k, history: k.history.slice(-MAX_KPI_HISTORY) }
+        : k
+    ),
+    dataImports: state.dataImports.slice(-MAX_DATA_IMPORTS),
     program: state.program,
     settings: state.settings,
   };
