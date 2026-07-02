@@ -2,14 +2,11 @@ import { useState } from 'react';
 import useStore from '../../store/useStore';
 import Icon from '../layout/Icon';
 import { formatDate } from '../../lib/helpers';
-
-const MODELS = [
-  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (Fast)' },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Balanced)' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (Best)' },
-];
+import { PROVIDERS, defaultModelFor } from '../../lib/ai';
 
 export default function SettingsView() {
+  const aiProvider = useStore((s) => s.aiProvider);
+  const setAiProvider = useStore((s) => s.setAiProvider);
   const aiModel = useStore((s) => s.aiModel);
   const setAiModel = useStore((s) => s.setAiModel);
   const aiApiKey = useStore((s) => s.aiApiKey);
@@ -89,13 +86,25 @@ export default function SettingsView() {
         </h2>
         <div className="space-y-4">
           <div>
+            <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">Provider</label>
+            <select
+              value={aiProvider}
+              onChange={(e) => setAiProvider(e.target.value, defaultModelFor(e.target.value))}
+              className="w-full border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40"
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">Model</label>
             <select
               value={aiModel}
               onChange={(e) => setAiModel(e.target.value)}
               className="w-full border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40"
             >
-              {MODELS.map((m) => (
+              {(PROVIDERS.find((p) => p.id === aiProvider) || PROVIDERS[0]).models.map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
@@ -107,7 +116,7 @@ export default function SettingsView() {
                 type={showKey ? 'text' : 'password'}
                 value={aiApiKey}
                 onChange={(e) => setAiApiKey(e.target.value)}
-                placeholder="sk-ant-..."
+                placeholder={(PROVIDERS.find((p) => p.id === aiProvider) || PROVIDERS[0]).keyPlaceholder}
                 className="flex-1 border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40 font-mono"
               />
               <button onClick={() => setShowKey(!showKey)} className="px-3 py-1.5 text-xs border border-[#1a1a1a]/15 text-stone-600 hover:bg-stone-100">

@@ -118,6 +118,7 @@ export default function MilestonesTab({ project }) {
             <select value={importProfile} onChange={(e) => setImportProfile(e.target.value)} className="border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none">
               <option value="generic">Generic CSV</option>
               <option value="smartsheet">Smartsheet</option>
+              <option value="jira">Jira (CSV or JSON export)</option>
             </select>
           </div>
           <div

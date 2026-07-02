@@ -20,6 +20,7 @@ export default function RaciTab({ project }) {
   const setRaci = useStore((s) => s.setRaci);
   const cycleRaciCell = useStore((s) => s.cycleRaciCell);
   const aiApiKey = useStore((s) => s.aiApiKey);
+  const aiProvider = useStore((s) => s.aiProvider);
   const aiModel = useStore((s) => s.aiModel);
   const milestones = useMemo(() => allMilestones.filter((m) => m.projectId === project.id && !m.archivedAt), [allMilestones, project.id]);
   const notes = useMemo(() => allNotes.filter((n) => n.projectId === project.id), [allNotes, project.id]);
@@ -65,7 +66,7 @@ export default function RaciTab({ project }) {
 
     setGenerating(true);
     try {
-      const result = await generateRaciMatrix(aiApiKey, aiModel, project, project.stakeholders, milestones, goals, notes, discovery);
+      const result = await generateRaciMatrix({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }, project, project.stakeholders, milestones, goals, notes, discovery);
       setRaci(project.id, result);
     } catch (err) {
       alert('Failed to generate RACI: ' + err.message);

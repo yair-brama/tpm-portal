@@ -1,10 +1,53 @@
-const API_URL = 'https://api.anthropic.com/v1/messages';
+// --- Provider registry ---
+
+export const PROVIDERS = [
+  {
+    id: 'anthropic',
+    label: 'Anthropic (Claude)',
+    keyPlaceholder: 'sk-ant-...',
+    models: [
+      { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (Fast)' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Balanced)' },
+      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (Best)' },
+    ],
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI (GPT)',
+    keyPlaceholder: 'sk-...',
+    models: [
+      { value: 'gpt-5-mini', label: 'GPT-5 mini (Fast)' },
+      { value: 'gpt-5', label: 'GPT-5 (Balanced)' },
+      { value: 'gpt-5.1', label: 'GPT-5.1 (Best)' },
+    ],
+  },
+  {
+    id: 'gemini',
+    label: 'Google (Gemini)',
+    keyPlaceholder: 'AIza...',
+    models: [
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Fast)' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Best)' },
+    ],
+  },
+];
+
+export const DEFAULT_PROVIDER = 'anthropic';
+
+export function defaultModelFor(providerId) {
+  const provider = PROVIDERS.find(p => p.id === providerId) || PROVIDERS[0];
+  return provider.models[0].value;
+}
+
+async function readErrorBody(res) {
+  return res.text().catch(() => '');
+}
 
 /**
- * Low-level call to the Anthropic Messages API.
+ * Anthropic Messages API.
  */
-async function callAnthropic(apiKey, model, systemPrompt, userMessage) {
-  const res = await fetch(API_URL, {
+async function callAnthropic({ apiKey, model }, systemPrompt, messages, maxTokens) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -14,44 +57,99 @@ async function callAnthropic(apiKey, model, systemPrompt, userMessage) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 2048,
+      max_tokens: maxTokens,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+      messages,
     }),
   });
   if (!res.ok) {
-    const errorBody = await res.text().catch(() => '');
-    throw new Error(`API error: ${res.status} ${errorBody}`);
+    throw new Error(`Anthropic API error: ${res.status} ${await readErrorBody(res)}`);
   }
   const data = await res.json();
   return data.content[0].text;
 }
 
 /**
- * Multi-turn call to Anthropic for conversational advisor.
+ * OpenAI Chat Completions API.
  */
-async function callAnthropicMultiTurn(apiKey, model, systemPrompt, messages) {
-  const res = await fetch(API_URL, {
+async function callOpenAi({ apiKey, model }, systemPrompt, messages, maxTokens) {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
+      // GPT-5 models spend part of the budget on internal reasoning tokens,
+      // so give extra headroom beyond the visible-output budget.
+      max_completion_tokens: maxTokens * 4,
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
     }),
   });
   if (!res.ok) {
-    const errorBody = await res.text().catch(() => '');
-    throw new Error(`API error: ${res.status} ${errorBody}`);
+    throw new Error(`OpenAI API error: ${res.status} ${await readErrorBody(res)}`);
   }
   const data = await res.json();
-  return data.content[0].text;
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error('OpenAI API returned an empty response');
+  return text;
+}
+
+/**
+ * Google Gemini generateContent API.
+ */
+async function callGemini({ apiKey, model }, systemPrompt, messages, maxTokens) {
+  const contents = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+        // Gemini 2.5 models spend part of the budget on internal thinking tokens.
+        generationConfig: { maxOutputTokens: maxTokens * 4 },
+      }),
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`Gemini API error: ${res.status} ${await readErrorBody(res)}`);
+  }
+  const data = await res.json();
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const text = parts.map(p => p.text || '').join('');
+  if (!text) throw new Error('Gemini API returned an empty response');
+  return text;
+}
+
+/**
+ * Provider-agnostic LLM call.
+ *
+ * @param {{provider: string, apiKey: string, model: string}} aiConfig
+ * @param {string} systemPrompt
+ * @param {Array<{role: 'user'|'assistant', content: string}>} messages
+ * @param {number} maxTokens
+ * @returns {Promise<string>} Response text
+ */
+async function callLLM(aiConfig, systemPrompt, messages, maxTokens = 2048) {
+  const provider = aiConfig.provider || DEFAULT_PROVIDER;
+  switch (provider) {
+    case 'openai':
+      return callOpenAi(aiConfig, systemPrompt, messages, maxTokens);
+    case 'gemini':
+      return callGemini(aiConfig, systemPrompt, messages, maxTokens);
+    case 'anthropic':
+    default:
+      return callAnthropic(aiConfig, systemPrompt, messages, maxTokens);
+  }
 }
 
 // --- Context assembly helpers ---
@@ -107,7 +205,7 @@ function daysAway(dateStr) {
  * Generate a status report for a project.
  * Assembles context per spec 8.1 and returns a parsed report object.
  */
-export async function generateStatusReport(apiKey, model, project, milestones, goals, notes) {
+export async function generateStatusReport(aiConfig, project, milestones, goals, notes) {
   const context = `Project: ${project.name}
 Phase: ${project.phase || 'Not specified'}
 Target Date: ${project.targetDate || 'Not set'} (${daysAway(project.targetDate)})
@@ -134,7 +232,7 @@ Be concise, factual, and professional. Use the project data — do not invent in
 After the report, on a new line, output a JSON line with the RAG assessment:
 {"ragStatus": "green|amber|red"}`;
 
-  const response = await callAnthropic(apiKey, model, systemPrompt, context);
+  const response = await callLLM(aiConfig, systemPrompt, [{ role: 'user', content: context }], 2048);
 
   // Parse the response into structured fields
   return parseStatusReport(response, project);
@@ -202,7 +300,7 @@ function parseStatusReport(text, project) {
  * Generate a RACI matrix for a project.
  * Per spec 9.3.
  */
-export async function generateRaciMatrix(apiKey, model, project, stakeholders, milestones, goals, notes, discovery) {
+export async function generateRaciMatrix(aiConfig, project, stakeholders, milestones, goals, notes, discovery) {
   const stakeholderList = (stakeholders || []).map(s =>
     typeof s === 'string' ? s : `${s.name} (${s.role || 'role unknown'})`
   ).join(', ');
@@ -259,7 +357,7 @@ Return JSON in this exact format (no markdown fences, just raw JSON):
   ]
 }`;
 
-  const response = await callAnthropic(apiKey, model, systemPrompt, projectData);
+  const response = await callLLM(aiConfig, systemPrompt, [{ role: 'user', content: projectData }], 2048);
 
   // Parse JSON from response (may be wrapped in markdown code fences)
   const jsonStr = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -287,7 +385,7 @@ Return JSON in this exact format (no markdown fences, just raw JSON):
  * Suggest KPIs for a project (or program).
  * Per spec 8.3.
  */
-export async function suggestKpis(apiKey, model, project, milestones, goals, notes, existingKpis) {
+export async function suggestKpis(aiConfig, project, milestones, goals, notes, existingKpis) {
   const context = `Project name: ${project?.name || 'Program-wide'}
 Description: ${project?.description || 'N/A'}
 Current phase: ${project?.phase || 'N/A'}
@@ -324,7 +422,7 @@ Return JSON array (no markdown fences, raw JSON only):
   }
 ]`;
 
-  const response = await callAnthropic(apiKey, model, systemPrompt, context);
+  const response = await callLLM(aiConfig, systemPrompt, [{ role: 'user', content: context }], 2048);
 
   const jsonStr = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   try {
@@ -338,13 +436,12 @@ Return JSON array (no markdown fences, raw JSON only):
  * Conversational AI advisor.
  * Takes conversation history and project/program context.
  *
- * @param {string} apiKey
- * @param {string} model
+ * @param {{provider: string, apiKey: string, model: string}} aiConfig
  * @param {Array<{role: string, content: string}>} messages - Conversation history
  * @param {Object} context - Project or program context object
  * @returns {Promise<string>} AI response text
  */
-export async function askAi(apiKey, model, messages, context) {
+export async function askAi(aiConfig, messages, context) {
   const contextSummary = context.isProgram
     ? buildProgramContext(context)
     : buildProjectContext(context);
@@ -361,7 +458,7 @@ ${contextSummary}
 
 You are an advisor only — you do not write data to the portal. The TPM acts on your suggestions manually.`;
 
-  return callAnthropicMultiTurn(apiKey, model, systemPrompt, messages);
+  return callLLM(aiConfig, systemPrompt, messages, 1024);
 }
 
 function buildProjectContext(ctx) {

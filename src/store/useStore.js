@@ -261,6 +261,7 @@ const useStore = create((set, get) => {
     },
     settings: {
       apiKey: '',
+      aiProvider: 'anthropic',
       aiModel: 'claude-haiku-4-5',
     },
     fileHandle: null,
@@ -268,6 +269,7 @@ const useStore = create((set, get) => {
     lastSavedAt: null,
     folderConnected: false,
     aiApiKey: '',
+    aiProvider: 'anthropic',
     aiModel: 'claude-haiku-4-5',
     discoveryTemplate: DISCOVERY_TEMPLATE,
     searchQuery: '',
@@ -776,6 +778,15 @@ const useStore = create((set, get) => {
       _autosave(get);
     },
 
+    setAiProvider: (provider, defaultModel) => {
+      set(s => ({
+        aiProvider: provider,
+        aiModel: defaultModel,
+        settings: { ...s.settings, aiProvider: provider, aiModel: defaultModel },
+      }));
+      _autosave(get);
+    },
+
     setAiModel: (model) => {
       set(s => ({ aiModel: model, settings: { ...s.settings, aiModel: model } }));
       _autosave(get);
@@ -852,6 +863,7 @@ function _extractData(state) {
 
 function _loadData(set, get, data) {
   const apiKey = data.settings?.apiKey || data.aiApiKey || '';
+  const aiProvider = data.settings?.aiProvider || data.aiProvider || 'anthropic';
   const aiModel = data.settings?.aiModel || data.aiModel || 'claude-haiku-4-5';
   set({
     projects: data.projects || [],
@@ -864,8 +876,9 @@ function _loadData(set, get, data) {
     kpis: data.kpis || [],
     dataImports: data.dataImports || [],
     program: data.program || get().program,
-    settings: { ...get().settings, ...(data.settings || {}), apiKey, aiModel },
+    settings: { ...get().settings, ...(data.settings || {}), apiKey, aiProvider, aiModel },
     aiApiKey: apiKey,
+    aiProvider: aiProvider,
     aiModel: aiModel,
   });
 }
@@ -891,6 +904,7 @@ function _loadSeedData(set) {
     },
     settings: {
       apiKey: '',
+      aiProvider: 'anthropic',
       aiModel: 'claude-haiku-4-5',
     },
   });

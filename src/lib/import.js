@@ -17,6 +17,20 @@ const STATUS_MAP = {
   'delayed': 'delayed',
   'late': 'delayed',
   'overdue': 'delayed',
+  // Jira statuses
+  'to do': 'upcoming',
+  'open': 'upcoming',
+  'backlog': 'upcoming',
+  'selected for development': 'upcoming',
+  'in development': 'in_progress',
+  'in review': 'in_progress',
+  'code review': 'in_progress',
+  'testing': 'in_progress',
+  'qa': 'in_progress',
+  'closed': 'completed',
+  'resolved': 'completed',
+  'blocked': 'delayed',
+  'on hold': 'delayed',
 };
 
 function mapStatus(raw) {
@@ -39,13 +53,14 @@ function pctToStatus(pct) {
 // --- Column name resolution ---
 
 const COLUMN_ALIASES = {
-  name: ['name', 'task name', 'milestone', 'title'],
-  dueDate: ['due date', 'due_date', 'finish date', 'target date'],
-  completedDate: ['completed date', 'completed_date', 'actual finish'],
+  name: ['name', 'task name', 'milestone', 'title', 'summary'],
+  issueKey: ['issue key', 'issue id', 'key'],
+  dueDate: ['due date', 'due_date', 'duedate', 'finish date', 'target date'],
+  completedDate: ['completed date', 'completed_date', 'actual finish', 'resolved', 'resolution date'],
   status: ['status', '% complete', 'percent complete'],
   notes: ['notes', 'comments', 'description'],
   assignees: ['assigned to', 'assignee', 'owner', 'resource'],
-  predecessors: ['predecessors', 'predecessor', 'depends on', 'dependencies'],
+  predecessors: ['predecessors', 'predecessor', 'depends on', 'dependencies', 'inward issue link (blocks)'],
 };
 
 const KPI_COLUMN_ALIASES = {
@@ -73,16 +88,32 @@ function resolveColumns(headers, aliasMap) {
 
 // --- Date parsing ---
 
+const MONTH_ABBREV = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
 function parseDate(raw) {
   if (!raw) return null;
   const s = String(raw).trim();
-  // ISO 8601: YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // ISO 8601: YYYY-MM-DD (with optional time portion, e.g. Jira's 2026-06-01T10:00:00.000+0000)
+  const isoMatch = s.match(/^(\d{4}-\d{2}-\d{2})([T ]|$)/);
+  if (isoMatch) return isoMatch[1];
   // US format: MM/DD/YYYY
   const usMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (usMatch) {
     const [, mm, dd, yyyy] = usMatch;
     return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+  // Jira CSV format: DD/Mon/YY or DD/Mon/YYYY (e.g. "01/Jun/26 3:25 PM")
+  const jiraMatch = s.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{2,4})/);
+  if (jiraMatch) {
+    const [, dd, mon, yy] = jiraMatch;
+    const mm = MONTH_ABBREV[mon.toLowerCase()];
+    if (mm) {
+      const yyyy = yy.length === 2 ? `20${yy}` : yy;
+      return `${yyyy}-${mm}-${dd.padStart(2, '0')}`;
+    }
   }
   // Try native Date parsing as last resort
   const d = new Date(s);
@@ -148,6 +179,7 @@ function parseGenericCsv(rows, columnMapping, isSmartsheet = false) {
     const ms = {
       id: uuidv4(),
       name,
+      externalKey: columnMapping.issueKey ? String(row[columnMapping.issueKey] || '').trim() : '',
       dueDate: columnMapping.dueDate ? parseDate(row[columnMapping.dueDate]) : null,
       completedDate: columnMapping.completedDate ? parseDate(row[columnMapping.completedDate]) : null,
       status,
@@ -181,6 +213,8 @@ function resolvePredecessors(milestones, useRowNumbers = false) {
   const nameIndex = {};
   milestones.forEach(m => {
     nameIndex[m.name.toLowerCase()] = m.id;
+    // Also index by external key (e.g. Jira issue key) since links reference keys
+    if (m.externalKey) nameIndex[m.externalKey.toLowerCase()] = m.id;
   });
 
   milestones.forEach(m => {
@@ -252,7 +286,7 @@ function resolvePredecessors(milestones, useRowNumbers = false) {
  * Parse an import file (CSV or JSON) using the specified profile.
  *
  * @param {File} file - The uploaded file
- * @param {string} profile - 'generic' | 'smartsheet' | 'kpi_history'
+ * @param {string} profile - 'generic' | 'smartsheet' | 'jira' | 'kpi_history'
  * @returns {Promise<{milestones?: Array, kpiEntries?: Array, warnings: string[], errors: string[]}>}
  */
 export async function parseImportFile(file, profile = 'generic') {
@@ -330,6 +364,16 @@ async function parseJsonFile(file, profile) {
       return { kpiEntries: entries, warnings: [], errors: [] };
     }
 
+    // Jira REST API export: {issues: [{key, fields: {...}}]} (or a bare array of issues)
+    const jiraIssues = Array.isArray(data?.issues) ? data.issues
+      : (Array.isArray(data) && data.length > 0 && data.every(it => it && it.fields) ? data : null);
+    if (profile === 'jira' || jiraIssues) {
+      if (!jiraIssues) {
+        return { milestones: [], warnings: [], errors: ['Could not find an "issues" array in the Jira JSON file'] };
+      }
+      return parseJiraIssues(jiraIssues);
+    }
+
     // Milestone JSON - find the array
     if (!Array.isArray(data)) {
       // Look for nested array (Smartsheet envelope)
@@ -372,6 +416,81 @@ async function parseJsonFile(file, profile) {
   } catch (e) {
     return { milestones: [], warnings: [], errors: [`Failed to parse JSON: ${e.message}`] };
   }
+}
+
+/**
+ * Extract plain text from a Jira description, which may be a plain string
+ * (REST API v2) or an Atlassian Document Format object (REST API v3).
+ */
+function jiraDescriptionText(desc) {
+  if (!desc) return '';
+  if (typeof desc === 'string') return desc;
+  if (typeof desc === 'object') {
+    const parts = [];
+    const walk = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (typeof node.text === 'string') parts.push(node.text);
+      (node.content || []).forEach(walk);
+    };
+    walk(desc);
+    return parts.join(' ').trim();
+  }
+  return '';
+}
+
+/**
+ * Map a Jira status to a milestone status, falling back to the
+ * status category (new/indeterminate/done) when the name is unrecognized.
+ */
+function mapJiraStatus(statusName, categoryKey) {
+  const normalized = String(statusName || '').trim().toLowerCase();
+  if (STATUS_MAP[normalized]) return STATUS_MAP[normalized];
+  if (categoryKey === 'done') return 'completed';
+  if (categoryKey === 'indeterminate') return 'in_progress';
+  return 'upcoming';
+}
+
+/**
+ * Parse Jira REST API issues into milestones.
+ * "Blocks" issue links become predecessors (this issue is blocked by inwardIssue).
+ */
+function parseJiraIssues(issues) {
+  const warnings = [];
+  const milestones = issues.map((issue, idx) => {
+    const f = issue.fields || {};
+    const name = String(f.summary || '').trim();
+    if (!name) {
+      warnings.push(`Issue ${issue.key || `#${idx + 1}`}: missing summary, skipped`);
+      return null;
+    }
+
+    const blockedBy = (f.issuelinks || [])
+      .filter(link => link.inwardIssue && (link.type?.name === 'Blocks' || link.type?.inward === 'is blocked by'))
+      .map(link => link.inwardIssue.key)
+      .filter(Boolean);
+
+    return {
+      id: uuidv4(),
+      name,
+      externalKey: issue.key || '',
+      dueDate: parseDate(f.duedate),
+      completedDate: parseDate(f.resolutiondate),
+      status: mapJiraStatus(f.status?.name, f.status?.statusCategory?.key),
+      notes: jiraDescriptionText(f.description),
+      assignees: f.assignee?.displayName ? [f.assignee.displayName] : [],
+      predecessorNames: blockedBy,
+      predecessorIds: [],
+      isBlocked: false,
+      notInLatestImport: false,
+      lastImportedAt: new Date().toISOString(),
+      archivedAt: null,
+    };
+  }).filter(Boolean);
+
+  const predWarnings = resolvePredecessors(milestones, false);
+  warnings.push(...predWarnings);
+
+  return { milestones, warnings, errors: [] };
 }
 
 /**
@@ -501,6 +620,7 @@ export function applyImport(projectId, existing, diff) {
       const match = diff.updated.find(u => u.existing.id === m.id);
       result.push({
         ...m,
+        externalKey: match.incoming.externalKey || m.externalKey,
         dueDate: match.incoming.dueDate ?? m.dueDate,
         completedDate: match.incoming.completedDate ?? m.completedDate,
         status: match.incoming.status || m.status,

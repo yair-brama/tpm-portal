@@ -28,6 +28,7 @@ export default function KpisTab({ project }) {
   const goals = useMemo(() => allGoals.filter((g) => g.projectId === project.id), [allGoals, project.id]);
   const notes = useMemo(() => allNotes.filter((n) => n.projectId === project.id), [allNotes, project.id]);
   const aiApiKey = useStore((s) => s.aiApiKey);
+  const aiProvider = useStore((s) => s.aiProvider);
   const aiModel = useStore((s) => s.aiModel);
   const addKpi = useStore((s) => s.addKpi);
   const recordKpiValue = useStore((s) => s.recordKpiValue);
@@ -62,7 +63,7 @@ export default function KpisTab({ project }) {
     }
     setSuggestingAi(true);
     try {
-      const result = await suggestKpis(aiApiKey, aiModel, project, milestones, goals, notes, kpis);
+      const result = await suggestKpis({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }, project, milestones, goals, notes, kpis);
       setSuggestions(result);
       setShowSuggestions(true);
     } catch (err) {

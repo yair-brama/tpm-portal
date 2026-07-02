@@ -9,6 +9,7 @@ export default function AskAiPanel() {
   const askAiMessages = useStore((s) => s.askAiMessages);
   const addAskAiMessage = useStore((s) => s.addAskAiMessage);
   const aiApiKey = useStore((s) => s.aiApiKey);
+  const aiProvider = useStore((s) => s.aiProvider);
   const aiModel = useStore((s) => s.aiModel);
   const projects = useStore((s) => s.projects);
   const [input, setInput] = useState('');
@@ -58,7 +59,7 @@ export default function AskAiPanel() {
     try {
       const context = buildContext();
       const messages = [...askAiMessages.map((m) => ({ role: m.role, content: m.content })), { role: 'user', content: question }];
-      const response = await askAi(aiApiKey, aiModel, messages, context);
+      const response = await askAi({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }, messages, context);
       addAskAiMessage({ role: 'assistant', content: response, timestamp: new Date().toISOString() });
     } catch (err) {
       addAskAiMessage({
