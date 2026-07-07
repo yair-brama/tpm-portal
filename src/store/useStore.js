@@ -263,6 +263,7 @@ const useStore = create((set, get) => {
       apiKey: '',
       aiProvider: 'anthropic',
       aiModel: 'claude-haiku-4-5',
+      aiBaseUrl: 'http://localhost:1234/v1',
     },
     fileHandle: null,
     isLoaded: false,
@@ -271,6 +272,7 @@ const useStore = create((set, get) => {
     aiApiKey: '',
     aiProvider: 'anthropic',
     aiModel: 'claude-haiku-4-5',
+    aiBaseUrl: 'http://localhost:1234/v1',
     discoveryTemplate: DISCOVERY_TEMPLATE,
     searchQuery: '',
     askAiOpen: false,
@@ -792,6 +794,11 @@ const useStore = create((set, get) => {
       _autosave(get);
     },
 
+    setAiBaseUrl: (url) => {
+      set(s => ({ aiBaseUrl: url, settings: { ...s.settings, aiBaseUrl: url } }));
+      _autosave(get);
+    },
+
     updateSettings: (updates) => {
       set(s => ({ settings: { ...s.settings, ...updates } }));
       _autosave(get);
@@ -865,6 +872,7 @@ function _loadData(set, get, data) {
   const apiKey = data.settings?.apiKey || data.aiApiKey || '';
   const aiProvider = data.settings?.aiProvider || data.aiProvider || 'anthropic';
   const aiModel = data.settings?.aiModel || data.aiModel || 'claude-haiku-4-5';
+  const aiBaseUrl = data.settings?.aiBaseUrl || data.aiBaseUrl || 'http://localhost:1234/v1';
   set({
     projects: data.projects || [],
     milestones: data.milestones || [],
@@ -876,10 +884,11 @@ function _loadData(set, get, data) {
     kpis: data.kpis || [],
     dataImports: data.dataImports || [],
     program: data.program || get().program,
-    settings: { ...get().settings, ...(data.settings || {}), apiKey, aiProvider, aiModel },
+    settings: { ...get().settings, ...(data.settings || {}), apiKey, aiProvider, aiModel, aiBaseUrl },
     aiApiKey: apiKey,
     aiProvider: aiProvider,
     aiModel: aiModel,
+    aiBaseUrl: aiBaseUrl,
   });
 }
 
@@ -906,6 +915,7 @@ function _loadSeedData(set) {
       apiKey: '',
       aiProvider: 'anthropic',
       aiModel: 'claude-haiku-4-5',
+      aiBaseUrl: 'http://localhost:1234/v1',
     },
   });
 }

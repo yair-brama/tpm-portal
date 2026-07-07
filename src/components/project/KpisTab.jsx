@@ -5,7 +5,7 @@ import Modal from '../shared/Modal';
 import Sparkline from '../shared/Sparkline';
 import { ragBg, kpiRag, formatDate } from '../../lib/helpers';
 import { computeKpiValue } from '../../lib/kpiCompute';
-import { suggestKpis } from '../../lib/ai';
+import { suggestKpis, isAiReady } from '../../lib/ai';
 import { parseImportFile as parseKpiImport } from '../../lib/import';
 
 const CATEGORIES = ['delivery', 'quality', 'efficiency', 'risk'];
@@ -30,6 +30,7 @@ export default function KpisTab({ project }) {
   const aiApiKey = useStore((s) => s.aiApiKey);
   const aiProvider = useStore((s) => s.aiProvider);
   const aiModel = useStore((s) => s.aiModel);
+  const aiBaseUrl = useStore((s) => s.aiBaseUrl);
   const addKpi = useStore((s) => s.addKpi);
   const recordKpiValue = useStore((s) => s.recordKpiValue);
   const [selectedKpi, setSelectedKpi] = useState(null);
@@ -57,13 +58,13 @@ export default function KpisTab({ project }) {
   }, [form.source, form.formulaTemplate, form.formulaParams, milestones, goals, notes]);
 
   const handleSuggestAi = async () => {
-    if (!aiApiKey) {
+    if (!isAiReady(aiProvider, aiApiKey)) {
       alert('Configure your API key in Settings to use AI features.');
       return;
     }
     setSuggestingAi(true);
     try {
-      const result = await suggestKpis({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }, project, milestones, goals, notes, kpis);
+      const result = await suggestKpis({ provider: aiProvider, apiKey: aiApiKey, model: aiModel, baseUrl: aiBaseUrl }, project, milestones, goals, notes, kpis);
       setSuggestions(result);
       setShowSuggestions(true);
     } catch (err) {

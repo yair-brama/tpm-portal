@@ -2,7 +2,7 @@ import { useState } from 'react';
 import useStore from '../../store/useStore';
 import Icon from '../layout/Icon';
 import { formatDate } from '../../lib/helpers';
-import { PROVIDERS, defaultModelFor } from '../../lib/ai';
+import { PROVIDERS, defaultModelFor, fetchLmStudioModels } from '../../lib/ai';
 
 export default function SettingsView() {
   const aiProvider = useStore((s) => s.aiProvider);
@@ -11,6 +11,8 @@ export default function SettingsView() {
   const setAiModel = useStore((s) => s.setAiModel);
   const aiApiKey = useStore((s) => s.aiApiKey);
   const setAiApiKey = useStore((s) => s.setAiApiKey);
+  const aiBaseUrl = useStore((s) => s.aiBaseUrl);
+  const setAiBaseUrl = useStore((s) => s.setAiBaseUrl);
   const discoveryTemplate = useStore((s) => s.discoveryTemplate);
   const setDiscoveryTemplate = useStore((s) => s.setDiscoveryTemplate);
   const resetDiscoveryTemplate = useStore((s) => s.resetDiscoveryTemplate);
@@ -21,6 +23,28 @@ export default function SettingsView() {
   const [expandedCat, setExpandedCat] = useState(null);
   const [newCatName, setNewCatName] = useState('');
   const [newItemTexts, setNewItemTexts] = useState({});
+  const [localModels, setLocalModels] = useState(null);
+  const [detectingModels, setDetectingModels] = useState(false);
+  const [detectError, setDetectError] = useState(null);
+
+  const provider = PROVIDERS.find((p) => p.id === aiProvider) || PROVIDERS[0];
+  const isLocal = provider.group === 'local';
+
+  const handleDetectModels = async () => {
+    setDetectingModels(true);
+    setDetectError(null);
+    try {
+      const models = await fetchLmStudioModels(aiBaseUrl);
+      setLocalModels(models);
+      if (models.length > 0 && !models.includes(aiModel)) {
+        setAiModel(models[0]);
+      }
+    } catch (err) {
+      setDetectError(err.message);
+      setLocalModels(null);
+    }
+    setDetectingModels(false);
+  };
 
   const handleAddCategory = () => {
     if (!newCatName.trim()) return;
@@ -92,39 +116,105 @@ export default function SettingsView() {
               onChange={(e) => setAiProvider(e.target.value, defaultModelFor(e.target.value))}
               className="w-full border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40"
             >
-              {PROVIDERS.map((p) => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
+              <optgroup label="External (cloud API)">
+                {PROVIDERS.filter((p) => p.group === 'external').map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Local (your machine)">
+                {PROVIDERS.filter((p) => p.group === 'local').map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </optgroup>
             </select>
           </div>
-          <div>
-            <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">Model</label>
-            <select
-              value={aiModel}
-              onChange={(e) => setAiModel(e.target.value)}
-              className="w-full border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40"
-            >
-              {(PROVIDERS.find((p) => p.id === aiProvider) || PROVIDERS[0]).models.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">API Key</label>
-            <div className="flex gap-2">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={aiApiKey}
-                onChange={(e) => setAiApiKey(e.target.value)}
-                placeholder={(PROVIDERS.find((p) => p.id === aiProvider) || PROVIDERS[0]).keyPlaceholder}
-                className="flex-1 border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40 font-mono"
-              />
-              <button onClick={() => setShowKey(!showKey)} className="px-3 py-1.5 text-xs border border-[#1a1a1a]/15 text-stone-600 hover:bg-stone-100">
-                <Icon name={showKey ? 'visibility_off' : 'visibility'} className="text-[16px]" />
-              </button>
-            </div>
-            <p className="text-xs text-stone-400 mt-1">Your API key is stored locally and never sent to our servers.</p>
-          </div>
+
+          {isLocal ? (
+            <>
+              <div>
+                <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">Server URL</label>
+                <input
+                  type="text"
+                  value={aiBaseUrl}
+                  onChange={(e) => setAiBaseUrl(e.target.value)}
+                  placeholder="http://localhost:1234/v1"
+                  className="w-full border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40 font-mono"
+                />
+                <p className="text-xs text-stone-400 mt-1">
+                  Start the local server in LM Studio (Developer tab) and enable CORS in its server settings.
+                </p>
+              </div>
+              <div>
+                <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">Model</label>
+                <div className="flex gap-2">
+                  {localModels && localModels.length > 0 ? (
+                    <select
+                      value={aiModel}
+                      onChange={(e) => setAiModel(e.target.value)}
+                      className="flex-1 border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40"
+                    >
+                      {localModels.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={aiModel}
+                      onChange={(e) => setAiModel(e.target.value)}
+                      placeholder="Leave empty to use the loaded model"
+                      className="flex-1 border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40 font-mono"
+                    />
+                  )}
+                  <button
+                    onClick={handleDetectModels}
+                    disabled={detectingModels}
+                    className="px-3 py-1.5 text-xs border border-[#1a1a1a]/15 text-stone-600 hover:bg-stone-100 whitespace-nowrap disabled:opacity-50"
+                  >
+                    {detectingModels ? 'Detecting...' : 'Detect Models'}
+                  </button>
+                </div>
+                {detectError && <p className="text-xs text-[#c41e3a] mt-1">{detectError}</p>}
+                {localModels && localModels.length === 0 && (
+                  <p className="text-xs text-[#d97706] mt-1">Server reachable, but no models are loaded in LM Studio.</p>
+                )}
+                {localModels && localModels.length > 0 && (
+                  <p className="text-xs text-[#15803d] mt-1">Found {localModels.length} model{localModels.length > 1 ? 's' : ''} on the server.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">Model</label>
+                <select
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                  className="w-full border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40"
+                >
+                  {provider.models.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs uppercase tracking-wider text-stone-400 font-semibold block mb-1">API Key</label>
+                <div className="flex gap-2">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={aiApiKey}
+                    onChange={(e) => setAiApiKey(e.target.value)}
+                    placeholder={provider.keyPlaceholder}
+                    className="flex-1 border border-[#1a1a1a]/15 px-3 py-1.5 text-sm bg-[#fdfcfb] focus:outline-none focus:border-[#c41e3a]/40 font-mono"
+                  />
+                  <button onClick={() => setShowKey(!showKey)} className="px-3 py-1.5 text-xs border border-[#1a1a1a]/15 text-stone-600 hover:bg-stone-100">
+                    <Icon name={showKey ? 'visibility_off' : 'visibility'} className="text-[16px]" />
+                  </button>
+                </div>
+                <p className="text-xs text-stone-400 mt-1">Your API key is stored locally and never sent to our servers.</p>
+              </div>
+            </>
+          )}
         </div>
       </section>
 

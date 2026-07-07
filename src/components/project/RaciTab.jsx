@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import useStore from '../../store/useStore';
 import Icon from '../layout/Icon';
-import { generateRaciMatrix } from '../../lib/ai';
+import { generateRaciMatrix, isAiReady } from '../../lib/ai';
 
 const CELL_COLORS = {
   R: 'bg-stone-100 text-[#1a1a1a] font-bold',
@@ -22,6 +22,7 @@ export default function RaciTab({ project }) {
   const aiApiKey = useStore((s) => s.aiApiKey);
   const aiProvider = useStore((s) => s.aiProvider);
   const aiModel = useStore((s) => s.aiModel);
+  const aiBaseUrl = useStore((s) => s.aiBaseUrl);
   const milestones = useMemo(() => allMilestones.filter((m) => m.projectId === project.id && !m.archivedAt), [allMilestones, project.id]);
   const notes = useMemo(() => allNotes.filter((n) => n.projectId === project.id), [allNotes, project.id]);
   const goals = useMemo(() => allGoals.filter((g) => g.projectId === project.id), [allGoals, project.id]);
@@ -45,7 +46,7 @@ export default function RaciTab({ project }) {
   }, [raci]);
 
   const handleGenerate = async () => {
-    if (!aiApiKey) {
+    if (!isAiReady(aiProvider, aiApiKey)) {
       // Generate placeholder RACI
       const people = (project.stakeholders || []).map((s) => ({ name: s, role: '' }));
       if (people.length === 0) {
@@ -66,7 +67,7 @@ export default function RaciTab({ project }) {
 
     setGenerating(true);
     try {
-      const result = await generateRaciMatrix({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }, project, project.stakeholders, milestones, goals, notes, discovery);
+      const result = await generateRaciMatrix({ provider: aiProvider, apiKey: aiApiKey, model: aiModel, baseUrl: aiBaseUrl }, project, project.stakeholders, milestones, goals, notes, discovery);
       setRaci(project.id, result);
     } catch (err) {
       alert('Failed to generate RACI: ' + err.message);

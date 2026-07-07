@@ -1,9 +1,12 @@
 // --- Provider registry ---
 
+export const DEFAULT_LMSTUDIO_URL = 'http://localhost:1234/v1';
+
 export const PROVIDERS = [
   {
     id: 'anthropic',
     label: 'Anthropic (Claude)',
+    group: 'external',
     keyPlaceholder: 'sk-ant-...',
     models: [
       { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (Fast)' },
@@ -14,6 +17,7 @@ export const PROVIDERS = [
   {
     id: 'openai',
     label: 'OpenAI (GPT)',
+    group: 'external',
     keyPlaceholder: 'sk-...',
     models: [
       { value: 'gpt-5-mini', label: 'GPT-5 mini (Fast)' },
@@ -24,11 +28,20 @@ export const PROVIDERS = [
   {
     id: 'gemini',
     label: 'Google (Gemini)',
+    group: 'external',
     keyPlaceholder: 'AIza...',
     models: [
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Fast)' },
       { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Best)' },
     ],
+  },
+  {
+    id: 'lmstudio',
+    label: 'LM Studio (Local LLM)',
+    group: 'local',
+    requiresKey: false,
+    keyPlaceholder: 'not required',
+    models: [],
   },
 ];
 
@@ -36,7 +49,17 @@ export const DEFAULT_PROVIDER = 'anthropic';
 
 export function defaultModelFor(providerId) {
   const provider = PROVIDERS.find(p => p.id === providerId) || PROVIDERS[0];
-  return provider.models[0].value;
+  return provider.models[0]?.value || '';
+}
+
+/**
+ * Whether AI features can be used with the current provider + key.
+ * Local providers (LM Studio) don't need an API key.
+ */
+export function isAiReady(providerId, apiKey) {
+  const provider = PROVIDERS.find(p => p.id === providerId);
+  if (provider && provider.requiresKey === false) return true;
+  return !!apiKey;
 }
 
 async function readErrorBody(res) {
@@ -131,9 +154,62 @@ async function callGemini({ apiKey, model }, systemPrompt, messages, maxTokens) 
 }
 
 /**
+ * LM Studio local server (OpenAI-compatible API).
+ */
+async function callLmStudio({ model, baseUrl }, systemPrompt, messages, maxTokens) {
+  const base = (baseUrl || DEFAULT_LMSTUDIO_URL).replace(/\/+$/, '');
+  let res;
+  try {
+    res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        // If no model is set, LM Studio falls back to the currently loaded one
+        ...(model ? { model } : {}),
+        max_tokens: maxTokens * 4,
+        messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      }),
+    });
+  } catch {
+    throw new Error(`Could not reach LM Studio at ${base}. Make sure the local server is running (Developer tab in LM Studio) and CORS is enabled in its settings.`);
+  }
+  if (!res.ok) {
+    throw new Error(`LM Studio API error: ${res.status} ${await readErrorBody(res)}`);
+  }
+  const data = await res.json();
+  let text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error('LM Studio returned an empty response');
+  // Local reasoning models (DeepSeek R1, Qwen, etc.) may emit <think> blocks
+  text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  if (!text) throw new Error('LM Studio returned only reasoning output with no answer; try a larger max_tokens or a non-reasoning model');
+  return text;
+}
+
+/**
+ * List the models available on an LM Studio server.
+ *
+ * @param {string} baseUrl
+ * @returns {Promise<string[]>} Model ids
+ */
+export async function fetchLmStudioModels(baseUrl) {
+  const base = (baseUrl || DEFAULT_LMSTUDIO_URL).replace(/\/+$/, '');
+  let res;
+  try {
+    res = await fetch(`${base}/models`);
+  } catch {
+    throw new Error(`Could not reach LM Studio at ${base}. Make sure the local server is running (Developer tab in LM Studio) and CORS is enabled in its settings.`);
+  }
+  if (!res.ok) {
+    throw new Error(`LM Studio API error: ${res.status} ${await readErrorBody(res)}`);
+  }
+  const data = await res.json();
+  return (data.data || []).map(m => m.id);
+}
+
+/**
  * Provider-agnostic LLM call.
  *
- * @param {{provider: string, apiKey: string, model: string}} aiConfig
+ * @param {{provider: string, apiKey: string, model: string, baseUrl?: string}} aiConfig
  * @param {string} systemPrompt
  * @param {Array<{role: 'user'|'assistant', content: string}>} messages
  * @param {number} maxTokens
@@ -146,6 +222,8 @@ async function callLLM(aiConfig, systemPrompt, messages, maxTokens = 2048) {
       return callOpenAi(aiConfig, systemPrompt, messages, maxTokens);
     case 'gemini':
       return callGemini(aiConfig, systemPrompt, messages, maxTokens);
+    case 'lmstudio':
+      return callLmStudio(aiConfig, systemPrompt, messages, maxTokens);
     case 'anthropic':
     default:
       return callAnthropic(aiConfig, systemPrompt, messages, maxTokens);

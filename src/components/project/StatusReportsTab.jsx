@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import useStore from '../../store/useStore';
 import Icon from '../layout/Icon';
 import { ragBg, formatDate } from '../../lib/helpers';
-import { generateStatusReport } from '../../lib/ai';
+import { generateStatusReport, isAiReady } from '../../lib/ai';
 
 export default function StatusReportsTab({ project }) {
   const allReports = useStore((s) => s.statusReports);
@@ -13,6 +13,8 @@ export default function StatusReportsTab({ project }) {
   const aiApiKey = useStore((s) => s.aiApiKey);
   const aiProvider = useStore((s) => s.aiProvider);
   const aiModel = useStore((s) => s.aiModel);
+  const aiBaseUrl = useStore((s) => s.aiBaseUrl);
+  const aiReady = isAiReady(aiProvider, aiApiKey);
   const reports = useMemo(() => allReports.filter((r) => r.projectId === project.id), [allReports, project.id]);
   const milestones = useMemo(() => allMilestones.filter((m) => m.projectId === project.id && !m.archivedAt), [allMilestones, project.id]);
   const goals = useMemo(() => allGoals.filter((g) => g.projectId === project.id), [allGoals, project.id]);
@@ -22,7 +24,7 @@ export default function StatusReportsTab({ project }) {
   const sorted = [...reports].sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt));
 
   const handleGenerate = async () => {
-    if (!aiApiKey) {
+    if (!aiReady) {
       // Generate a placeholder report
       addStatusReport({
         projectId: project.id,
@@ -38,7 +40,7 @@ export default function StatusReportsTab({ project }) {
 
     setGenerating(true);
     try {
-      const report = await generateStatusReport({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }, project, milestones, goals, notes);
+      const report = await generateStatusReport({ provider: aiProvider, apiKey: aiApiKey, model: aiModel, baseUrl: aiBaseUrl }, project, milestones, goals, notes);
       addStatusReport({ ...report, projectId: project.id });
     } catch (err) {
       if (err.message === 'NO_API_KEY') {
@@ -79,7 +81,7 @@ ${(report.risks || []).map((r) => '- ' + r).join('\n')}`;
           <div>
             <p className="text-xs uppercase tracking-wider text-stone-400 font-semibold">AI Status Engine</p>
             <p className="text-xs text-stone-500 mt-1">
-              {aiApiKey ? 'Generate an AI-powered status report from your project data.' : 'Configure your API key in Settings to use AI features.'}
+              {aiReady ? 'Generate an AI-powered status report from your project data.' : 'Configure your API key in Settings to use AI features.'}
             </p>
           </div>
           <button

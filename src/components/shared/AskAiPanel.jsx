@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import useStore from '../../store/useStore';
 import Icon from '../layout/Icon';
-import { askAi } from '../../lib/ai';
+import { askAi, isAiReady } from '../../lib/ai';
 
 export default function AskAiPanel() {
   const setAskAiOpen = useStore((s) => s.setAskAiOpen);
@@ -11,6 +11,7 @@ export default function AskAiPanel() {
   const aiApiKey = useStore((s) => s.aiApiKey);
   const aiProvider = useStore((s) => s.aiProvider);
   const aiModel = useStore((s) => s.aiModel);
+  const aiBaseUrl = useStore((s) => s.aiBaseUrl);
   const projects = useStore((s) => s.projects);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,7 +46,7 @@ export default function AskAiPanel() {
     setInput('');
     addAskAiMessage({ role: 'user', content: question, timestamp: new Date().toISOString() });
 
-    if (!aiApiKey) {
+    if (!isAiReady(aiProvider, aiApiKey)) {
       // Simulated response
       addAskAiMessage({
         role: 'assistant',
@@ -59,7 +60,7 @@ export default function AskAiPanel() {
     try {
       const context = buildContext();
       const messages = [...askAiMessages.map((m) => ({ role: m.role, content: m.content })), { role: 'user', content: question }];
-      const response = await askAi({ provider: aiProvider, apiKey: aiApiKey, model: aiModel }, messages, context);
+      const response = await askAi({ provider: aiProvider, apiKey: aiApiKey, model: aiModel, baseUrl: aiBaseUrl }, messages, context);
       addAskAiMessage({ role: 'assistant', content: response, timestamp: new Date().toISOString() });
     } catch (err) {
       addAskAiMessage({
