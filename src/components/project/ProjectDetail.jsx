@@ -10,12 +10,14 @@ import StatusReportsTab from './StatusReportsTab';
 import DiscoveryTab from './DiscoveryTab';
 import RaciTab from './RaciTab';
 import KpisTab from './KpisTab';
+import DocumentsPanel from './DocumentsPanel';
 
 const TABS = [
   { key: 'overview', label: 'Overview', icon: 'info' },
   { key: 'goals', label: 'Goals', icon: 'flag' },
   { key: 'milestones', label: 'Milestones', icon: 'timeline' },
   { key: 'notes', label: 'Notes', icon: 'note' },
+  { key: 'documents', label: 'Documents', icon: 'folder_open' },
   { key: 'status_reports', label: 'Status Reports', icon: 'summarize' },
   { key: 'discovery', label: 'Discovery', icon: 'explore' },
   { key: 'raci', label: 'RACI Matrix', icon: 'grid_on' },
@@ -55,6 +57,8 @@ export default function ProjectDetail() {
         return <MilestonesTab project={project} />;
       case 'notes':
         return <NotesTab project={project} />;
+      case 'documents':
+        return <DocumentsPanel project={project} />;
       case 'status_reports':
         return <StatusReportsTab project={project} />;
       case 'discovery':

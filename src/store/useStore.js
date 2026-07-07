@@ -251,6 +251,8 @@ const useStore = create((set, get) => {
     raciData: {},
     kpis: [],
     dataImports: [],
+    documents: [],
+    projectBriefs: {},
     program: {
       name: 'Platform Modernization',
       description: '',
@@ -773,6 +775,27 @@ const useStore = create((set, get) => {
       _autosave(get);
     },
 
+    // --- Project folder documents ---
+
+    setProjectDocuments: (projectId, docs) => {
+      set(s => ({
+        documents: [...s.documents.filter(d => d.projectId !== projectId), ...docs],
+      }));
+      _autosave(get);
+    },
+
+    updateDocument: (id, updates) => {
+      set(s => ({
+        documents: s.documents.map(d => (d.id === id ? { ...d, ...updates } : d)),
+      }));
+      _autosave(get);
+    },
+
+    setProjectBrief: (projectId, brief) => {
+      set(s => ({ projectBriefs: { ...s.projectBriefs, [projectId]: brief } }));
+      _autosave(get);
+    },
+
     // --- Settings ---
 
     setAiApiKey: (key) => {
@@ -847,6 +870,7 @@ function _autosave(get) {
 
 const MAX_KPI_HISTORY = 104;
 const MAX_DATA_IMPORTS = 50;
+const MAX_DOCUMENTS = 500;
 
 function _extractData(state) {
   return {
@@ -863,6 +887,8 @@ function _extractData(state) {
         : k
     ),
     dataImports: state.dataImports.slice(-MAX_DATA_IMPORTS),
+    documents: state.documents.slice(-MAX_DOCUMENTS),
+    projectBriefs: state.projectBriefs,
     program: state.program,
     settings: state.settings,
   };
@@ -883,6 +909,8 @@ function _loadData(set, get, data) {
     raciData: data.raciData || data.raci || {},
     kpis: data.kpis || [],
     dataImports: data.dataImports || [],
+    documents: data.documents || [],
+    projectBriefs: data.projectBriefs || {},
     program: data.program || get().program,
     settings: { ...get().settings, ...(data.settings || {}), apiKey, aiProvider, aiModel, aiBaseUrl },
     aiApiKey: apiKey,

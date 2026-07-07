@@ -599,3 +599,83 @@ function buildProgramContext(ctx) {
 
   return parts.join('\n');
 }
+
+// --- Document monitoring (project folder) ---
+
+const DOC_TEXT_CAP = 12000; // chars sent to the LLM per document
+
+/**
+ * Summarize a single project document.
+ *
+ * @param {{provider: string, apiKey: string, model: string, baseUrl?: string}} aiConfig
+ * @param {{fileName: string}} doc
+ * @param {string} text - Extracted plain text
+ * @returns {Promise<string>} Summary text
+ */
+export async function summarizeDocument(aiConfig, doc, text) {
+  const systemPrompt = `You are a TPM assistant summarizing a project document.
+Produce 3-6 concise bullet points capturing only what matters to a program manager:
+decisions, commitments, dates, owners, risks, blockers, metrics, and action items.
+Be factual — do not invent information not present in the document.
+If the document contains none of these, say so in one line.`;
+
+  const truncated = text.length > DOC_TEXT_CAP;
+  const content = `File: ${doc.fileName}${truncated ? ' (truncated)' : ''}
+
+${text.slice(0, DOC_TEXT_CAP)}`;
+
+  return callLLM(aiConfig, systemPrompt, [{ role: 'user', content }], 512);
+}
+
+function formatDocumentContext(documents) {
+  const summarized = (documents || []).filter(d => d.status !== 'removed' && d.summary);
+  if (summarized.length === 0) return 'No documents summarized.';
+  const removed = (documents || []).filter(d => d.status === 'removed');
+  const parts = summarized.map(d => {
+    const modified = d.lastModified ? new Date(d.lastModified).toISOString().split('T')[0] : 'unknown date';
+    return `[${d.fileName} — modified ${modified}]\n${d.summary}`;
+  });
+  if (removed.length > 0) {
+    parts.push(`Removed from folder since last scan: ${removed.map(d => d.fileName).join(', ')}`);
+  }
+  return parts.join('\n\n');
+}
+
+/**
+ * Synthesize a "full picture" narrative brief for a project from portal
+ * data (milestones/goals/notes) plus the summarized folder documents.
+ *
+ * @returns {Promise<{text: string, generatedAt: string}>}
+ */
+export async function generateProjectBrief(aiConfig, project, milestones, goals, notes, documents) {
+  const context = `Project: ${project.name}
+Phase: ${project.phase || 'Not specified'}
+RAG Status: ${project.status}
+Target Date: ${project.targetDate || 'Not set'}
+Owner: ${project.owner || 'N/A'}
+
+Milestones:
+${formatMilestoneContext(milestones)}
+
+Goals:
+${formatGoalContext(goals)}
+
+Notes:
+${formatNoteContext(notes)}
+
+Folder documents (AI summaries):
+${formatDocumentContext(documents)}`;
+
+  const systemPrompt = `You are a senior TPM writing a "full picture" brief of a project for someone joining it today.
+Using ONLY the data provided, write a brief with these sections:
+1. Where the project stands (2-4 sentences)
+2. Key facts & decisions from the documents (bullets; cite the source file name in parentheses)
+3. Risks, blockers & open questions (bullets)
+4. Suggested next steps (bullets)
+
+Be specific and factual. Where portal data and documents disagree, point out the discrepancy.
+If document coverage is thin, say what is missing rather than padding.`;
+
+  const text = await callLLM(aiConfig, systemPrompt, [{ role: 'user', content: context }], 2048);
+  return { text, generatedAt: new Date().toISOString() };
+}
