@@ -14,10 +14,16 @@ export function hasStoredHandle() {
   return directoryHandle !== null || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('tpm-portal-has-handle') === 'true');
 }
 
+/**
+ * Open the folder picker and read tpm-data.json if present.
+ *
+ * @returns {Promise<{status: 'ok'|'cancelled'|'unsupported', data: Object|null}>}
+ *   status 'ok' with data:null means the folder is connected but empty —
+ *   callers must keep the current state, NOT treat it as a reset.
+ */
 export async function openFolder() {
   if (!isFileSystemAvailable()) {
-    // Fall back to localStorage
-    return readFromLocalStorage();
+    return { status: 'unsupported', data: readFromLocalStorage() };
   }
 
   try {
@@ -29,24 +35,23 @@ export async function openFolder() {
       const fileHandle = await directoryHandle.getFileHandle(DATA_FILE_NAME);
       const file = await fileHandle.getFile();
       const text = await file.text();
-      const data = JSON.parse(text);
-      return data;
+      return { status: 'ok', data: JSON.parse(text) };
     } catch (e) {
       // File doesn't exist yet — that's fine
       if (e.name === 'NotFoundError' || e.name === 'TypeMismatchError') {
-        return null;
+        return { status: 'ok', data: null };
       }
       // JSON parse error
       if (e instanceof SyntaxError) {
         console.error('Failed to parse tpm-data.json:', e);
-        return null;
+        return { status: 'ok', data: null };
       }
       throw e;
     }
   } catch (e) {
     if (e.name === 'AbortError') {
       // User cancelled the picker
-      return null;
+      return { status: 'cancelled', data: null };
     }
     console.error('Failed to open folder:', e);
     throw e;
@@ -74,11 +79,17 @@ export async function readData() {
 }
 
 export async function writeData(data) {
-  if (!directoryHandle) {
-    // Fall back to localStorage
+  // Always mirror to localStorage first, synchronously. The folder handle
+  // does not survive a page reload, so the app boots from localStorage —
+  // without this mirror, data saved while a folder was connected would be
+  // invisible on the next start. Sync also means it lands during unload.
+  try {
     writeToLocalStorage(data);
-    return;
+  } catch (e) {
+    console.error('localStorage mirror failed:', e);
   }
+
+  if (!directoryHandle) return;
 
   try {
     const fileHandle = await directoryHandle.getFileHandle(DATA_FILE_NAME, { create: true });
@@ -88,13 +99,6 @@ export async function writeData(data) {
     await writable.close();
   } catch (e) {
     console.error('Failed to write tpm-data.json:', e);
-    // Attempt localStorage fallback on write failure
-    try {
-      writeToLocalStorage(data);
-      console.warn('Fell back to localStorage for write');
-    } catch (fallbackError) {
-      console.error('localStorage fallback also failed:', fallbackError);
-    }
     throw e;
   }
 }

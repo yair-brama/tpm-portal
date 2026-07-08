@@ -230,11 +230,30 @@ const SEED_RACI_P1 = {
 // --- Debounce helper ---
 
 let saveTimeout = null;
+let pendingSave = null;
 function debouncedSave(saveFn) {
+  pendingSave = saveFn;
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
+    saveTimeout = null;
+    pendingSave = null;
     saveFn();
   }, 500);
+}
+
+// Flush a still-debounced save when the tab closes so edits made in the
+// last 500ms (e.g. typing an API key and closing) aren't lost. writeData
+// mirrors to localStorage synchronously, so this lands during unload.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+      saveTimeout = null;
+      const fn = pendingSave;
+      pendingSave = null;
+      fn?.();
+    }
+  });
 }
 
 // --- Store definition ---
@@ -285,18 +304,29 @@ const useStore = create((set, get) => {
 
     initFromFile: async () => {
       try {
-        const data = await openFolder();
+        const { status, data } = await openFolder();
+        if (status === 'cancelled') {
+          // User dismissed the picker — leave current state untouched
+          return;
+        }
         if (data) {
           _loadData(set, get, data);
           set({ isLoaded: true, folderConnected: true, lastSavedAt: new Date().toISOString() });
-        } else {
-          _loadSeedData(set);
+        } else if (status === 'ok') {
+          // Folder connected but has no tpm-data.json yet — keep the
+          // current in-memory data and write it into the new folder
           set({ isLoaded: true, folderConnected: true });
+          await get().saveData();
+        } else if (!get().isLoaded) {
+          _loadSeedData(set);
+          set({ isLoaded: true });
         }
       } catch (e) {
         console.error('initFromFile failed:', e);
-        _loadSeedData(set);
-        set({ isLoaded: true });
+        if (!get().isLoaded) {
+          _loadSeedData(set);
+          set({ isLoaded: true });
+        }
       }
     },
 
