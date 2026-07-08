@@ -349,6 +349,9 @@ const useStore = create((set, get) => {
 
     saveData: async () => {
       const s = get();
+      // Never persist before initial data has loaded — a save fired from a
+      // pre-init state would overwrite good stored data with an empty store
+      if (!s.isLoaded) return;
       const data = _extractData(s);
       try {
         await writeData(data);

@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import useStore from '../../store/useStore';
 import Icon from '../layout/Icon';
 import { askAi, isAiReady } from '../../lib/ai';
+import { computeAlerts } from '../../lib/alerts';
 
 export default function AskAiPanel() {
   const setAskAiOpen = useStore((s) => s.setAskAiOpen);
-  const askAiContext = useStore((s) => s.askAiContext);
   const askAiMessages = useStore((s) => s.askAiMessages);
   const addAskAiMessage = useStore((s) => s.addAskAiMessage);
   const aiApiKey = useStore((s) => s.aiApiKey);
@@ -13,6 +14,14 @@ export default function AskAiPanel() {
   const aiModel = useStore((s) => s.aiModel);
   const aiBaseUrl = useStore((s) => s.aiBaseUrl);
   const projects = useStore((s) => s.projects);
+  const milestones = useStore((s) => s.milestones);
+  const goals = useStore((s) => s.goals);
+  const notes = useStore((s) => s.notes);
+  const kpis = useStore((s) => s.kpis);
+  const program = useStore((s) => s.program);
+  const statusReports = useStore((s) => s.statusReports);
+  const dataImports = useStore((s) => s.dataImports);
+  const discoveryState = useStore((s) => s.discoveryState);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -21,23 +30,33 @@ export default function AskAiPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [askAiMessages]);
 
-  const contextLabel = askAiContext === 'dashboard' ? 'All Projects' : 'Current Project';
+  // On a project page, scope the context to that project; otherwise
+  // (dashboard, program, settings) use the program-wide view.
+  const location = useLocation();
+  const projectId = location.pathname.match(/^\/project\/([^/]+)/)?.[1] || null;
+  const currentProject = projectId ? projects.find((p) => p.id === projectId) : null;
+
+  const contextLabel = currentProject ? currentProject.name : 'All Projects';
 
   const buildContext = () => {
-    if (askAiContext === 'dashboard') {
+    if (currentProject) {
       return {
-        type: 'dashboard',
-        projects: projects.map((p) => ({
-          name: p.name,
-          status: p.status,
-          phase: p.phase,
-          targetDate: p.targetDate,
-          owner: p.owner,
-        })),
+        isProgram: false,
+        project: currentProject,
+        milestones: milestones.filter((m) => m.projectId === currentProject.id && !m.archivedAt),
+        goals: goals.filter((g) => g.projectId === currentProject.id),
+        notes: notes.filter((n) => n.projectId === currentProject.id),
+        kpis: kpis.filter((k) => k.projectId === currentProject.id),
       };
     }
-    // Project context would be set via store
-    return { type: 'project', projects: projects.map((p) => ({ name: p.name, status: p.status })) };
+    return {
+      isProgram: true,
+      program,
+      projects,
+      milestones: milestones.filter((m) => !m.archivedAt),
+      kpis: kpis.filter((k) => !k.projectId || (program.kpiIds || []).includes(k.id)),
+      alerts: computeAlerts(projects, milestones, statusReports, kpis, dataImports, discoveryState),
+    };
   };
 
   const handleSend = async () => {
