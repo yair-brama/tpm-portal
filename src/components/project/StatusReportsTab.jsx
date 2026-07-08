@@ -9,6 +9,7 @@ export default function StatusReportsTab({ project }) {
   const allMilestones = useStore((s) => s.milestones);
   const allGoals = useStore((s) => s.goals);
   const allNotes = useStore((s) => s.notes);
+  const allDocuments = useStore((s) => s.documents);
   const addStatusReport = useStore((s) => s.addStatusReport);
   const aiApiKey = useStore((s) => s.aiApiKey);
   const aiProvider = useStore((s) => s.aiProvider);
@@ -19,6 +20,7 @@ export default function StatusReportsTab({ project }) {
   const milestones = useMemo(() => allMilestones.filter((m) => m.projectId === project.id && !m.archivedAt), [allMilestones, project.id]);
   const goals = useMemo(() => allGoals.filter((g) => g.projectId === project.id), [allGoals, project.id]);
   const notes = useMemo(() => allNotes.filter((n) => n.projectId === project.id), [allNotes, project.id]);
+  const documents = useMemo(() => allDocuments.filter((d) => d.projectId === project.id), [allDocuments, project.id]);
   const [generating, setGenerating] = useState(false);
 
   const sorted = [...reports].sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt));
@@ -40,7 +42,7 @@ export default function StatusReportsTab({ project }) {
 
     setGenerating(true);
     try {
-      const report = await generateStatusReport({ provider: aiProvider, apiKey: aiApiKey, model: aiModel, baseUrl: aiBaseUrl }, project, milestones, goals, notes);
+      const report = await generateStatusReport({ provider: aiProvider, apiKey: aiApiKey, model: aiModel, baseUrl: aiBaseUrl }, project, milestones, goals, notes, documents);
       addStatusReport({ ...report, projectId: project.id });
     } catch (err) {
       if (err.message === 'NO_API_KEY') {

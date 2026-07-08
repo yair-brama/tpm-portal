@@ -18,6 +18,7 @@ export default function AskAiPanel() {
   const goals = useStore((s) => s.goals);
   const notes = useStore((s) => s.notes);
   const kpis = useStore((s) => s.kpis);
+  const documents = useStore((s) => s.documents);
   const program = useStore((s) => s.program);
   const statusReports = useStore((s) => s.statusReports);
   const dataImports = useStore((s) => s.dataImports);
@@ -47,6 +48,7 @@ export default function AskAiPanel() {
         goals: goals.filter((g) => g.projectId === currentProject.id),
         notes: notes.filter((n) => n.projectId === currentProject.id),
         kpis: kpis.filter((k) => k.projectId === currentProject.id),
+        documents: documents.filter((d) => d.projectId === currentProject.id),
       };
     }
     return {
@@ -56,6 +58,7 @@ export default function AskAiPanel() {
       milestones: milestones.filter((m) => !m.archivedAt),
       kpis: kpis.filter((k) => !k.projectId || (program.kpiIds || []).includes(k.id)),
       alerts: computeAlerts(projects, milestones, statusReports, kpis, dataImports, discoveryState),
+      documents,
     };
   };
 

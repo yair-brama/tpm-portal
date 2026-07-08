@@ -283,7 +283,7 @@ function daysAway(dateStr) {
  * Generate a status report for a project.
  * Assembles context per spec 8.1 and returns a parsed report object.
  */
-export async function generateStatusReport(aiConfig, project, milestones, goals, notes) {
+export async function generateStatusReport(aiConfig, project, milestones, goals, notes, documents) {
   const context = `Project: ${project.name}
 Phase: ${project.phase || 'Not specified'}
 Target Date: ${project.targetDate || 'Not set'} (${daysAway(project.targetDate)})
@@ -296,7 +296,10 @@ Goals:
 ${formatGoalContext(goals)}
 
 Notes (all, newest first):
-${formatNoteContext(notes)}`;
+${formatNoteContext(notes)}
+
+Folder documents (AI summaries):
+${formatDocumentContext(documents)}`;
 
   const systemPrompt = `You are a technical program manager writing a weekly status update.
 Based on the project data below, write a status report with:
@@ -564,6 +567,10 @@ function buildProjectContext(ctx) {
     });
   }
 
+  if (ctx.documents && ctx.documents.length > 0) {
+    parts.push('', 'Folder documents (AI summaries):', formatDocumentContext(ctx.documents));
+  }
+
   return parts.join('\n');
 }
 
@@ -595,6 +602,29 @@ function buildProgramContext(ctx) {
     ctx.kpis.forEach(k => {
       parts.push(`- ${k.name}: ${k.currentValue ?? 'no value'} ${k.unit} (target: ${k.target})`);
     });
+  }
+
+  const summarizedDocs = (ctx.documents || []).filter(d => d.status !== 'removed' && d.summary);
+  if (summarizedDocs.length > 0) {
+    // Cap program-wide document context to the most recently modified files
+    const MAX_PROGRAM_DOCS = 30;
+    const recent = [...summarizedDocs]
+      .sort((a, b) => (b.lastModified || 0) - (a.lastModified || 0))
+      .slice(0, MAX_PROGRAM_DOCS);
+    parts.push('', 'Folder documents (AI summaries, grouped by project):');
+    const byProject = new Map();
+    recent.forEach(d => {
+      if (!byProject.has(d.projectId)) byProject.set(d.projectId, []);
+      byProject.get(d.projectId).push(d);
+    });
+    for (const [projectId, docs] of byProject) {
+      const projectName = (ctx.projects || []).find(p => p.id === projectId)?.name || 'Unknown project';
+      parts.push(`--- ${projectName} ---`);
+      docs.forEach(d => parts.push(`[${d.fileName}]\n${d.summary}`));
+    }
+    if (summarizedDocs.length > recent.length) {
+      parts.push(`(${summarizedDocs.length - recent.length} older document summaries omitted)`);
+    }
   }
 
   return parts.join('\n');
